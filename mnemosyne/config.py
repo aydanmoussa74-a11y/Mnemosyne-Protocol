@@ -171,6 +171,7 @@ class MnemosyneConfig:
     token_budget: TokenBudgetConfig = field(default_factory=TokenBudgetConfig)
     profiles: Dict[str, ModelProfile] = field(default_factory=dict)
     default_profile: Optional[str] = None
+    default_tenant: str = "default"
     storage_path: str = "./mnemosyne_data"
     db_echo: bool = False
 

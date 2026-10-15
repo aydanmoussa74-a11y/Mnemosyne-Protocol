@@ -7,10 +7,11 @@ injects them into the LLM payload as a ranked context block.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from mnemosyne.config import MnemosyneConfig
+from mnemosyne.config import MnemosyneConfig, TokenBudgetConfig
 from mnemosyne.exceptions import InjectionError, TokenBudgetError
 from mnemosyne.schemas import (
     InjectionResult,
@@ -35,6 +36,21 @@ class ContextInjectionMiddleware:
       5. Render a system/context preamble and return the augmented prompt.
     """
 
+    # Instruction-override markers that may indicate an indirect prompt
+    # injection stored in memory. They are replaced with a neutral token so
+    # an attacker cannot hijack future assistant responses via a poisoned
+    # memory block.
+    _INJECTION_MARKERS = (
+        "ignore previous instructions",
+        "ignore all previous instructions",
+        "disregard the above",
+        "system:",
+        "assistant:",
+        "user:",
+        "### Instruction",
+        "### System",
+    )
+
     def __init__(
         self,
         store: HybridStore,
@@ -58,6 +74,7 @@ class ContextInjectionMiddleware:
         mode: RetrievalMode = RetrievalMode.HYBRID,
         entity_filter: Optional[str] = None,
         tag_filter: Optional[List[str]] = None,
+        tenant_id: str = "default",
     ) -> InjectionResult:
         """Produce an augmented prompt with retrieved memory anchors.
 
@@ -86,7 +103,7 @@ class ContextInjectionMiddleware:
             # 2. Build a query embedding if the store has a vector dimension.
             query_embedding = self._embed_query(user_input)
 
-            # 3. Retrieve anchors.
+            # 3. Retrieve anchors (tenant-scoped).
             query = MemorySearchQuery(
                 text=user_input,
                 embedding=query_embedding,
@@ -94,6 +111,7 @@ class ContextInjectionMiddleware:
                 mode=mode,
                 entity_filter=entity_filter,
                 tag_filter=tag_filter,
+                tenant_id=tenant_id,
                 min_importance=self.config.retrieval.min_importance,
             )
             results = self.retrieval.retrieve(query)
@@ -154,6 +172,18 @@ class ContextInjectionMiddleware:
     def set_embedder(self, embedder) -> None:  # noqa: ANN001
         self._embedder = embedder
 
+    @classmethod
+    def _sanitize_for_prompt(cls, text: str) -> str:
+        """Neutralize prompt-injection sequences in memory content before rendering.
+
+        Strips common instruction-override markers so an attacker cannot store
+        a malicious block that hijacks future assistant responses.
+        """
+        for marker in cls._INJECTION_MARKERS:
+            if marker.lower() in text.lower():
+                text = re.sub(re.escape(marker), "[redacted]", text, flags=re.IGNORECASE)
+        return text
+
     def _render_prompt(self, user_input: str, blocks: List[MemoryBlock]) -> str:
         if not blocks:
             return user_input
@@ -164,10 +194,11 @@ class ContextInjectionMiddleware:
             "",
         ]
         for idx, block in enumerate(blocks, 1):
+            safe_content = self._sanitize_for_prompt(block.content)
             tag_line = f" [{', '.join(block.tags)}]" if block.tags else ""
             lines.append(
                 f"[{idx}] (relevance={block.importance_score:.2f}{tag_line})\n"
-                f"{block.content}"
+                f"{safe_content}"
             )
         lines.append("")
         lines.append("---")

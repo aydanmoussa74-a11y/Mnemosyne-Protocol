@@ -70,7 +70,11 @@ class MemoryBlock(BaseModel):
     """
 
     id: UUID = Field(default_factory=uuid4)
-    content: str = Field(..., min_length=1, description="Raw memory text content.")
+    tenant_id: str = Field(
+        default="default", min_length=1, max_length=128,
+        description="Tenant namespace for multitenant isolation.",
+    )
+    content: str = Field(..., min_length=1, max_length=65536, description="Raw memory text content.")
     embedding: Optional[List[float]] = Field(
         default=None, description="Dense vector embedding of the content."
     )
@@ -115,7 +119,11 @@ class MemoryEntity(BaseModel):
     """An entity (person, place, concept, ...) extracted from memory blocks."""
 
     id: UUID = Field(default_factory=uuid4)
-    name: str = Field(..., min_length=1)
+    tenant_id: str = Field(
+        default="default", min_length=1, max_length=128,
+        description="Tenant namespace for multitenant isolation.",
+    )
+    name: str = Field(..., min_length=1, max_length=256)
     entity_type: EntityType = Field(default=EntityType.OTHER)
     properties: Dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -128,6 +136,10 @@ class MemoryRelation(BaseModel):
     """A directed, labeled relation between two entities in the knowledge graph."""
 
     id: UUID = Field(default_factory=uuid4)
+    tenant_id: str = Field(
+        default="default", min_length=1, max_length=128,
+        description="Tenant namespace for multitenant isolation.",
+    )
     subject_entity_id: UUID
     predicate: str = Field(..., min_length=1)
     object_entity_id: UUID
@@ -140,6 +152,10 @@ class MemoryEdge(BaseModel):
     """A lightweight edge linking a memory block to entities / other blocks."""
 
     id: UUID = Field(default_factory=uuid4)
+    tenant_id: str = Field(
+        default="default", min_length=1, max_length=128,
+        description="Tenant namespace for multitenant isolation.",
+    )
     memory_block_id: UUID
     target_id: UUID  # entity id or another block id
     edge_type: str  # "mentions", "references", "derives_from", ...
@@ -150,6 +166,10 @@ class ConsolidationJob(BaseModel):
     """A background job that compresses/prunes/synthesizes short-term memories."""
 
     id: UUID = Field(default_factory=uuid4)
+    tenant_id: str = Field(
+        default="default", min_length=1, max_length=128,
+        description="Tenant namespace for multitenant isolation.",
+    )
     status: ConsolidationStatus = Field(default=ConsolidationStatus.PENDING)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     started_at: Optional[datetime] = None
@@ -207,6 +227,7 @@ class MemorySearchQuery(BaseModel):
     mode: RetrievalMode = Field(default=RetrievalMode.HYBRID)
     entity_filter: Optional[str] = None
     tag_filter: Optional[List[str]] = None
+    tenant_id: str = Field(default="default", min_length=1, max_length=128)
     min_importance: float = Field(default=0.0, ge=0.0, le=1.0)
     status_filter: Optional[MemoryBlockStatus] = None
     time_window_seconds: Optional[int] = None

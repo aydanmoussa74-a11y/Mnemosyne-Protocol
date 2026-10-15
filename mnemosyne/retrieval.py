@@ -80,6 +80,7 @@ class RetrievalEngine:
             top_k=query.top_k,
             min_score=self.retrieval.min_importance,
             status_filter=query.status_filter,
+            tenant_id=query.tenant_id,
         )
         return self._to_results(hits, RetrievalMode.VECTOR, query.top_k)
 
@@ -92,23 +93,32 @@ class RetrievalEngine:
         # Resolve named entities mentioned in the query text.
         if query.text:
             for token in set(query.text.split()):
-                entity = self.store.find_entity_by_name(token.strip(".,!?:;\"'"))
+                entity = self.store.find_entity_by_name(
+                    token.strip(".,!?:;\"'"), tenant_id=query.tenant_id
+                )
                 if entity is not None:
                     seed_entity_ids.append(entity.id)
 
         # Explicit entity filter.
         if query.entity_filter:
-            entity = self.store.find_entity_by_name(query.entity_filter)
+            entity = self.store.find_entity_by_name(
+                query.entity_filter, tenant_id=query.tenant_id
+            )
             if entity is not None:
                 seed_entity_ids.append(entity.id)
 
-        # Expand through graph hops.
+        # Expand through graph hops (tenant-scoped).
         expanded = self.store.traverse_graph(
             seed_entity_ids, max_depth=self.retrieval.graph_hop_depth
         )
 
-        # Blocks mentioning any of the expanded entities.
-        block_ids = self.store.blocks_for_entities(expanded, top_k=query.top_k * 5)
+        # Blocks mentioning any of the expanded entities, tenant-scoped.
+        block_ids = self.store.blocks_for_entities(
+            expanded, top_k=query.top_k * 5, tenant_id=query.tenant_id
+        )
+
+        # Apply tag filter if provided.
+        tag_filter = set(query.tag_filter or [])
 
         # Fetch blocks and score by graph centrality (edge-weight sum).
         results: List[RetrievalResult] = []
@@ -118,8 +128,10 @@ class RetrievalEngine:
                 continue
             seen.add(block_id)
             try:
-                block = self.store.read_block(block_id)
+                block = self.store.read_block(block_id, tenant_id=query.tenant_id)
             except Exception:
+                continue
+            if tag_filter and not set(block.tags or []).intersection(tag_filter):
                 continue
             if query.status_filter is not None and block.status != query.status_filter:
                 continue
@@ -152,6 +164,7 @@ class RetrievalEngine:
                 top_k=query.top_k * 2,
                 min_score=self.retrieval.min_importance,
                 status_filter=query.status_filter,
+                tenant_id=query.tenant_id,
             )
 
         graph_block_ids = self._graph_block_ids(query)
@@ -162,6 +175,9 @@ class RetrievalEngine:
         fused = _reciprocal_rank_fusion(
             [vector_ranked, graph_ranked], k=self.retrieval.rrf_k
         )
+
+        # Apply tag filter if provided.
+        tag_filter = set(query.tag_filter or [])
 
         # Fetch blocks and attach fused scores.
         score_by_id: Dict[UUID, float] = dict(fused)
@@ -174,8 +190,10 @@ class RetrievalEngine:
                 continue
             seen.add(block_id)
             try:
-                block = self.store.read_block(block_id)
+                block = self.store.read_block(block_id, tenant_id=query.tenant_id)
             except Exception:
+                continue
+            if tag_filter and not set(block.tags or []).intersection(tag_filter):
                 continue
             if query.status_filter is not None and block.status != query.status_filter:
                 continue
@@ -209,17 +227,23 @@ class RetrievalEngine:
         seed_entity_ids: List[UUID] = []
         if query.text:
             for token in set(query.text.split()):
-                entity = self.store.find_entity_by_name(token.strip(".,!?:;\"'"))
+                entity = self.store.find_entity_by_name(
+                    token.strip(".,!?:;\"'"), tenant_id=query.tenant_id
+                )
                 if entity is not None:
                     seed_entity_ids.append(entity.id)
         if query.entity_filter:
-            entity = self.store.find_entity_by_name(query.entity_filter)
+            entity = self.store.find_entity_by_name(
+                query.entity_filter, tenant_id=query.tenant_id
+            )
             if entity is not None:
                 seed_entity_ids.append(entity.id)
         expanded = self.store.traverse_graph(
             seed_entity_ids, max_depth=self.retrieval.graph_hop_depth
         )
-        return self.store.blocks_for_entities(expanded, top_k=query.top_k * 5)
+        return self.store.blocks_for_entities(
+            expanded, top_k=query.top_k * 5, tenant_id=query.tenant_id
+        )
 
     # ------------------------------------------------------------------ #
     # Helpers

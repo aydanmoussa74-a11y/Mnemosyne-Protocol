@@ -39,6 +39,7 @@ try:  # Optional hard dependency for relational persistence.
         String,
         Text,
         create_engine,
+        event,
     )
     from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
@@ -65,6 +66,7 @@ if _HAS_SQLALCHEMY:
     class BlockORM(Base):
         __tablename__ = "memory_blocks"
         id = Column(String, primary_key=True)
+        tenant_id = Column(String, nullable=False, default="default", index=True)
         content = Column(Text, nullable=False)
         metadata_json = Column(Text, default="{}")
         timestamp = Column(DateTime, default=None)
@@ -84,6 +86,7 @@ if _HAS_SQLALCHEMY:
     class EntityORM(Base):
         __tablename__ = "memory_entities"
         id = Column(String, primary_key=True)
+        tenant_id = Column(String, nullable=False, default="default", index=True)
         name = Column(String, nullable=False, index=True)
         entity_type = Column(String, default="other")
         properties_json = Column(Text, default="{}")
@@ -158,13 +161,14 @@ def _cosine_similarity_batch(
 # Serialization helpers
 # --------------------------------------------------------------------------- #
 
-def _block_to_orm(block: MemoryBlock) -> Any:  # noqa: ANN401
+def _block_to_orm(block: MemoryBlock, tenant_id: str = "default") -> Any:  # noqa: ANN401
     if not _HAS_SQLALCHEMY:
         raise StoreError("SQLAlchemy is required for persistence", code="no_sqlalchemy")
     import json
 
     return BlockORM(
         id=str(block.id),
+        tenant_id=tenant_id,
         content=block.content,
         metadata_json=json.dumps(block.metadata),
         timestamp=block.timestamp,
@@ -209,6 +213,7 @@ def _orm_to_block(orm: Any) -> MemoryBlock:  # noqa: ANN401
             metadata = {}
     return MemoryBlock(
         id=UUID(orm.id),
+        tenant_id=orm.tenant_id or "default",
         content=orm.content,
         embedding=embedding,
         metadata=metadata,
@@ -283,8 +288,26 @@ class HybridStore:
         engine = create_engine(
             f"sqlite:///{db_path}",
             echo=self.config.db_echo,
-            connect_args={"check_same_thread": False},
+            connect_args={
+                "check_same_thread": False,
+                "timeout": 30,
+            },
+            pool_pre_ping=True,
         )
+
+        # Enable WAL mode and a busy timeout so concurrent writers (FastAPI
+        # threadpool + consolidation worker) rarely hit "database is locked".
+        @event.listens_for(engine, "connect")
+        def _set_sqlite_pragmas(dbapi_connection, connection_record):  # noqa: ANN001
+            try:
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.close()
+            except Exception:  # pragma: no cover - defensive
+                pass
+
         Base.metadata.create_all(engine)
         return sessionmaker(bind=engine)
 
@@ -292,7 +315,12 @@ class HybridStore:
     # Write path
     # ------------------------------------------------------------------ #
     def write_block(self, block: MemoryBlock) -> MemoryBlock:
-        """Persist a memory block and update the in-memory vector index."""
+        """Persist a memory block and update the in-memory vector index.
+
+        Blocks are namespaced by ``block.tenant_id`` so that tenants cannot
+        read or overwrite each other's memory.
+        """
+        tenant_id = block.tenant_id or "default"
         with self._lock:
             self._blocks[block.id] = block
 
@@ -307,7 +335,7 @@ class HybridStore:
                     )
                 self._vectors[block.id] = list(block.embedding)
 
-            self._persist_block(block)
+            self._persist_block(block, tenant_id=tenant_id)
             return block
 
     def write_blocks(self, blocks: Iterable[MemoryBlock]) -> List[MemoryBlock]:
@@ -334,12 +362,12 @@ class HybridStore:
                 session.close()
             return written
 
-    def _persist_block(self, block: MemoryBlock) -> None:  # noqa: ANN001
+    def _persist_block(self, block: MemoryBlock, tenant_id: str = "default") -> None:  # noqa: ANN001
         session = self._session_factory()
         try:
             orm = session.query(BlockORM).get(str(block.id))
             if orm is None:
-                orm = _block_to_orm(block)
+                orm = _block_to_orm(block, tenant_id=tenant_id)
                 session.add(orm)
             else:
                 for field, value in {
@@ -372,10 +400,16 @@ class HybridStore:
     # ------------------------------------------------------------------ #
     # Read path
     # ------------------------------------------------------------------ #
-    def read_block(self, block_id: UUID) -> MemoryBlock:
+    def read_block(self, block_id: UUID, tenant_id: str = "default") -> MemoryBlock:
         with self._lock:
             block = self._blocks.get(block_id)
             if block is None:
+                raise NotFoundError(
+                    f"Memory block {block_id} not found",
+                    code="block_not_found",
+                    details={"block_id": str(block_id)},
+                )
+            if block.tenant_id != tenant_id:
                 raise NotFoundError(
                     f"Memory block {block_id} not found",
                     code="block_not_found",
@@ -385,20 +419,29 @@ class HybridStore:
 
     def list_blocks(
         self,
+        tenant_id: str = "default",
         status: Optional[MemoryBlockStatus] = None,
         limit: int = 1000,
         offset: int = 0,
     ) -> List[MemoryBlock]:
         with self._lock:
-            blocks = list(self._blocks.values())
+            blocks = [
+                b for b in self._blocks.values() if b.tenant_id == tenant_id
+            ]
             if status is not None:
                 blocks = [b for b in blocks if b.status == status]
             blocks.sort(key=lambda b: b.timestamp, reverse=True)
             return blocks[offset : offset + limit]
 
-    def delete_block(self, block_id: UUID) -> None:
+    def delete_block(self, block_id: UUID, tenant_id: str = "default") -> None:
         with self._lock:
-            if block_id not in self._blocks:
+            block = self._blocks.get(block_id)
+            if block is None:
+                raise NotFoundError(
+                    f"Memory block {block_id} not found",
+                    code="block_not_found",
+                )
+            if block.tenant_id != tenant_id:
                 raise NotFoundError(
                     f"Memory block {block_id} not found",
                     code="block_not_found",
@@ -505,6 +548,7 @@ class HybridStore:
         top_k: int = 10,
         min_score: float = 0.0,
         status_filter: Optional[MemoryBlockStatus] = None,
+        tenant_id: str = "default",
     ) -> List[Tuple[UUID, float]]:
         """Exact cosine-similarity search over indexed embeddings."""
         with self._lock:
@@ -527,6 +571,8 @@ class HybridStore:
                     continue
                 block = self._blocks.get(block_id)
                 if block is None:
+                    continue
+                if block.tenant_id != tenant_id:
                     continue
                 if status_filter is not None and block.status != status_filter:
                     continue
@@ -556,7 +602,7 @@ class HybridStore:
     # ------------------------------------------------------------------ #
     # Graph path
     # ------------------------------------------------------------------ #
-    def upsert_entity(self, entity: MemoryEntity) -> MemoryEntity:
+    def upsert_entity(self, entity: MemoryEntity, tenant_id: str = "default") -> MemoryEntity:
         with self._lock:
             existing = self._entities.get(entity.id)
             if existing is None:
@@ -582,14 +628,17 @@ class HybridStore:
                 )
             return entity
 
-    def find_entity_by_name(self, name: str) -> Optional[MemoryEntity]:
+    def find_entity_by_name(self, name: str, tenant_id: str = "default") -> Optional[MemoryEntity]:
         with self._lock:
             eid = self._entity_by_name.get(name)
             if eid is None:
                 return None
-            return self._entities.get(eid)
+            entity = self._entities.get(eid)
+            if entity is None or entity.tenant_id != tenant_id:
+                return None
+            return entity
 
-    def add_relation(self, relation: MemoryRelation) -> MemoryRelation:
+    def add_relation(self, relation: MemoryRelation, tenant_id: str = "default") -> MemoryRelation:
         with self._lock:
             self._relations[relation.id] = relation
             self._rel_by_subject.setdefault(relation.subject_entity_id, []).append(
@@ -601,7 +650,7 @@ class HybridStore:
             self._persist_relation(relation)
             return relation
 
-    def add_edge(self, edge: MemoryEdge) -> MemoryEdge:
+    def add_edge(self, edge: MemoryEdge, tenant_id: str = "default") -> MemoryEdge:
         with self._lock:
             self._edges[edge.id] = edge
             self._edges_by_block.setdefault(edge.memory_block_id, []).append(edge.id)
@@ -643,7 +692,7 @@ class HybridStore:
             return list(visited)
 
     def blocks_for_entities(
-        self, entity_ids: Iterable[UUID], top_k: int = 10
+        self, entity_ids: Iterable[UUID], top_k: int = 10, tenant_id: str = "default"
     ) -> List[UUID]:
         """Return block ids that mention the given entities, scored by edge weight."""
         with self._lock:
@@ -652,6 +701,9 @@ class HybridStore:
                 # Find edges whose target is this entity (block mentions entity).
                 for edge in self._edges.values():
                     if edge.target_id == eid:
+                        block = self._blocks.get(edge.memory_block_id)
+                        if block is None or block.tenant_id != tenant_id:
+                            continue
                         block_scores[edge.memory_block_id] = block_scores.get(
                             edge.memory_block_id, 0.0
                         ) + edge.weight
@@ -661,12 +713,12 @@ class HybridStore:
     # ------------------------------------------------------------------ #
     # Hybrid retrieval entry point
     # ------------------------------------------------------------------ #
-    def get_block(self, block_id: UUID) -> MemoryBlock:
-        return self.read_block(block_id)
+    def get_block(self, block_id: UUID, tenant_id: str = "default") -> MemoryBlock:
+        return self.read_block(block_id, tenant_id=tenant_id)
 
-    def count_blocks(self) -> int:
+    def count_blocks(self, tenant_id: str = "default") -> int:
         with self._lock:
-            return len(self._blocks)
+            return sum(1 for b in self._blocks.values() if b.tenant_id == tenant_id)
 
     def close(self) -> None:
         """No-op for SQLite (sessions are short-lived)."""
