@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -60,12 +61,19 @@ _engine_lock = asyncio.Lock()
 # --------------------------------------------------------------------------- #
 
 class MemoryBlockIngestRequest(BaseModel):
-    content: str = Field(..., min_length=1, description="Raw memory text content.")
-    source: str = Field(default="api", description="Origin label for this block.")
+    content: str = Field(
+        ..., min_length=1, max_length=65536,
+        description="Raw memory text content.",
+    )
+    source: str = Field(default="api", max_length=128, description="Origin label for this block.")
+    tenant_id: Optional[str] = Field(
+        default=None, max_length=128,
+        description="Tenant namespace; defaults to engine default tenant.",
+    )
     importance_score: float = Field(
         default=0.5, ge=0.0, le=1.0, description="Learned importance weight."
     )
-    tags: List[str] = Field(default_factory=list)
+    tags: List[str] = Field(default_factory=list, max_items=32)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     ttl_seconds: Optional[int] = Field(
         default=None, ge=0, description="Optional TTL in seconds."
@@ -87,12 +95,13 @@ class MemoryBlockIngestResponse(BaseModel):
 
 
 class MemoryRetrieveRequest(BaseModel):
-    text: Optional[str] = Field(default=None, description="Natural-language query.")
+    text: Optional[str] = Field(default=None, max_length=65536, description="Natural-language query.")
     top_k: int = Field(default=10, ge=1, le=100)
     mode: str = Field(default="hybrid", description="vector | graph | hybrid")
-    entity_filter: Optional[str] = None
-    tag_filter: Optional[List[str]] = None
+    entity_filter: Optional[str] = Field(default=None, max_length=256)
+    tag_filter: Optional[List[str]] = Field(default=None, max_items=32)
     min_importance: float = Field(default=0.0, ge=0.0, le=1.0)
+    tenant_id: Optional[str] = Field(default=None, max_length=128)
 
     @validator("mode")
     def _validate_mode(cls, v):  # noqa: N805
@@ -122,15 +131,16 @@ class MemoryRetrieveResponse(BaseModel):
 
 
 class ChatCompletionsRequest(BaseModel):
-    message: str = Field(..., min_length=1, description="User's message.")
+    message: str = Field(..., min_length=1, max_length=65536, description="User's message.")
     model_profile: Optional[str] = Field(
         default=None, description="Name of a registered model profile."
     )
     top_k: Optional[int] = Field(default=None, ge=1, le=100)
     mode: str = Field(default="hybrid")
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
-    max_tokens: Optional[int] = Field(default=None, ge=1)
+    max_tokens: Optional[int] = Field(default=None, ge=1, le=8192)
     stream: bool = Field(default=False)
+    tenant_id: Optional[str] = Field(default=None, max_length=128)
 
     @validator("mode")
     def _validate_mode(cls, v):  # noqa: N805
@@ -199,8 +209,31 @@ def create_app(config: Optional[MnemosyneConfig] = None) -> FastAPI:
         allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["*"],
+        allow_headers=["authorization", "content-type"],
     )
+
+    # ------------------------------------------------------------------ #
+    # Authentication (optional API key)
+    # ------------------------------------------------------------------ #
+    _API_KEY = os.environ.get("MNEMOSYNE_API_KEY")
+
+    if _API_KEY:
+        @app.middleware("http")
+        async def _auth_middleware(request: Request, call_next):
+            # Health and docs are public.
+            if request.url.path in ("/v1/health", "/openapi.json", "/docs", "/redoc"):
+                return await call_next(request)
+            authorization = request.headers.get("authorization", "")
+            if not authorization.startswith("Bearer ") or authorization[7:] != _API_KEY:
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={
+                        "error": "unauthenticated",
+                        "message": "Missing or invalid Bearer token. Set MNEMOSYNE_API_KEY and pass Authorization: Bearer <key>.",
+                        "details": {},
+                    },
+                )
+            return await call_next(request)
 
     # ------------------------------------------------------------------ #
     # Structured request logging middleware
@@ -372,11 +405,13 @@ def create_app(config: Optional[MnemosyneConfig] = None) -> FastAPI:
     )
     async def ingest_memory(req: MemoryBlockIngestRequest) -> MemoryBlockIngestResponse:
         engine = _get_engine()
+        tenant_id = req.tenant_id or engine.config.default_tenant or "default"
 
         def _ingest() -> MemoryBlockIngestResponse:
             block = engine.ingest(
                 content=req.content,
                 source=req.source,
+                tenant_id=tenant_id,
                 importance_score=req.importance_score,
                 tags=req.tags,
                 metadata=req.metadata,
@@ -406,6 +441,7 @@ def create_app(config: Optional[MnemosyneConfig] = None) -> FastAPI:
     )
     async def retrieve_memory(req: MemoryRetrieveRequest) -> MemoryRetrieveResponse:
         engine = _get_engine()
+        tenant_id = req.tenant_id or engine.config.default_tenant or "default"
 
         def _retrieve() -> MemoryRetrieveResponse:
             try:
@@ -425,6 +461,7 @@ def create_app(config: Optional[MnemosyneConfig] = None) -> FastAPI:
                 mode=RetrievalMode(req.mode),
                 entity_filter=req.entity_filter,
                 tag_filter=req.tag_filter,
+                tenant_id=tenant_id,
                 min_importance=req.min_importance,
             )
             results = engine.retrieval.retrieve(query)
@@ -447,6 +484,7 @@ def create_app(config: Optional[MnemosyneConfig] = None) -> FastAPI:
     @app.post("/v1/chat/completions", tags=["chat"], response_model=None)
     async def chat_completions(
         req: ChatCompletionsRequest,
+        request: Request,
     ) -> ChatCompletionsResponse | StreamingResponse:
         """Universal chat/completions proxy.
 
@@ -454,15 +492,16 @@ def create_app(config: Optional[MnemosyneConfig] = None) -> FastAPI:
         → response (streamed or full).
         """
         engine = _get_engine()
+        tenant_id = req.tenant_id or engine.config.default_tenant or "default"
 
         if req.stream:
             return StreamingResponse(
-                _stream_completions(engine, req),
+                _stream_completions(engine, req, tenant_id),
                 media_type="text/event-stream",
             )
 
         def _complete() -> ChatCompletionsResponse:
-            return _do_complete(engine, req)
+            return _do_complete(engine, req, tenant_id)
 
         return await _run_sync(_complete)
 
@@ -470,13 +509,14 @@ def create_app(config: Optional[MnemosyneConfig] = None) -> FastAPI:
     # Internal completion logic
     # ------------------------------------------------------------------ #
     def _do_complete(
-        engine: "MnemosyneEngine", req: ChatCompletionsRequest
+        engine: "MnemosyneEngine", req: ChatCompletionsRequest, tenant_id: str
     ) -> ChatCompletionsResponse:
         profile = engine.config.get_profile(req.model_profile)
 
         # 1. Inject context (budget + retrieval + prompt augmentation).
         injection: InjectionResult = engine.inject(
             user_input=req.message,
+            tenant_id=tenant_id,
             model_name=profile.model,
             top_k=req.top_k,
             mode=RetrievalMode(req.mode),
@@ -513,12 +553,12 @@ def create_app(config: Optional[MnemosyneConfig] = None) -> FastAPI:
         )
 
     async def _stream_completions(
-        engine: "MnemosyneEngine", req: ChatCompletionsRequest
+        engine: "MnemosyneEngine", req: ChatCompletionsRequest, tenant_id: str
     ) -> AsyncGenerator[str, None]:
         """Stream completion chunks as server-sent events."""
 
         def _build() -> ChatCompletionsResponse:
-            return _do_complete(engine, req)
+            return _do_complete(engine, req, tenant_id)
 
         result: ChatCompletionsResponse = await run_in_threadpool(_build)
 
@@ -584,14 +624,15 @@ def create_app(config: Optional[MnemosyneConfig] = None) -> FastAPI:
     # Memory block CRUD (read / list / delete)
     # ------------------------------------------------------------------ #
     @app.get("/v1/memory/blocks/{block_id}", tags=["memory"])
-    async def get_memory_block(block_id: str) -> Dict[str, Any]:
+    async def get_memory_block(block_id: str, request: Request) -> Dict[str, Any]:
         from uuid import UUID as _UUID
 
         engine = _get_engine()
+        tenant_id = request.headers.get("x-tenant-id") or engine.config.default_tenant or "default"
 
         def _get() -> Dict[str, Any]:
             try:
-                block = engine.store.read_block(_UUID(block_id))
+                block = engine.store.read_block(_UUID(block_id), tenant_id=tenant_id)
             except ValueError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -619,12 +660,14 @@ def create_app(config: Optional[MnemosyneConfig] = None) -> FastAPI:
 
     @app.get("/v1/memory/blocks", tags=["memory"])
     async def list_memory_blocks(
+        request: Request,
         limit: int = 50, offset: int = 0
     ) -> Dict[str, Any]:
         engine = _get_engine()
+        tenant_id = request.headers.get("x-tenant-id") or engine.config.default_tenant or "default"
 
         def _list() -> Dict[str, Any]:
-            blocks = engine.store.list_blocks(limit=limit, offset=offset)
+            blocks = engine.store.list_blocks(tenant_id=tenant_id, limit=limit, offset=offset)
             return {
                 "blocks": [
                     {
@@ -644,14 +687,15 @@ def create_app(config: Optional[MnemosyneConfig] = None) -> FastAPI:
         return await _run_sync(_list)
 
     @app.delete("/v1/memory/blocks/{block_id}", tags=["memory"])
-    async def delete_memory_block(block_id: str) -> Dict[str, Any]:
+    async def delete_memory_block(block_id: str, request: Request) -> Dict[str, Any]:
         from uuid import UUID as _UUID
 
         engine = _get_engine()
+        tenant_id = request.headers.get("x-tenant-id") or engine.config.default_tenant or "default"
 
         def _delete() -> Dict[str, Any]:
             try:
-                engine.store.delete_block(_UUID(block_id))
+                engine.store.delete_block(_UUID(block_id), tenant_id=tenant_id)
             except ValueError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,

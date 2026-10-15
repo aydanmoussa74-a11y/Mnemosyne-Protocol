@@ -106,6 +106,7 @@ class MnemosyneEngine:
         content: str,
         *,
         source: str = "ingestion",
+        tenant_id: str = "default",
         metadata: Optional[dict] = None,
         importance_score: float = 0.5,
         tags: Optional[List[str]] = None,
@@ -120,6 +121,7 @@ class MnemosyneEngine:
         block = MemoryBlock(
             content=content,
             source=source,
+            tenant_id=tenant_id,
             metadata=metadata or {},
             importance_score=max(0.0, min(1.0, importance_score)),
             tags=tags or [],
@@ -160,15 +162,16 @@ class MnemosyneEngine:
             )
         return blocks
 
-    def get_memory(self, block_id: UUID) -> MemoryBlock:
-        return self.store.read_block(block_id)
+    def get_memory(self, block_id: UUID, tenant_id: str = "default") -> MemoryBlock:
+        return self.store.read_block(block_id, tenant_id=tenant_id)
 
     def list_memories(
         self,
+        tenant_id: str = "default",
         limit: int = 100,
         offset: int = 0,
     ) -> List[MemoryBlock]:
-        return self.store.list_blocks(limit=limit, offset=offset)
+        return self.store.list_blocks(tenant_id=tenant_id, limit=limit, offset=offset)
 
     # ------------------------------------------------------------------ #
     # Retrieval
@@ -177,6 +180,7 @@ class MnemosyneEngine:
         self,
         text: Optional[str] = None,
         *,
+        tenant_id: str = "default",
         top_k: int = 10,
         mode: RetrievalMode = RetrievalMode.HYBRID,
         entity_filter: Optional[str] = None,
@@ -203,6 +207,7 @@ class MnemosyneEngine:
             mode=mode,
             entity_filter=entity_filter,
             tag_filter=tag_filter,
+            tenant_id=tenant_id,
             min_importance=min_importance,
         )
         results = self.retrieval.retrieve(query)
@@ -215,6 +220,7 @@ class MnemosyneEngine:
         self,
         user_input: str,
         *,
+        tenant_id: str = "default",
         model_name: Optional[str] = None,
         top_k: Optional[int] = None,
         mode: RetrievalMode = RetrievalMode.HYBRID,
@@ -229,6 +235,7 @@ class MnemosyneEngine:
             mode=mode,
             entity_filter=entity_filter,
             tag_filter=tag_filter,
+            tenant_id=tenant_id,
         )
 
     # ------------------------------------------------------------------ #
