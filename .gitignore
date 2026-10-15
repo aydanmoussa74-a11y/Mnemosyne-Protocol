@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mnemosyne_data/
+.smoke_data/
+.env
