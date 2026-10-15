@@ -225,12 +225,12 @@ def build_adapter(profile: ModelProfile, fn: Optional[Callable[[str], str]] = No
             f"No adapter registered for provider: {profile.provider.value}",
             code="unknown_provider",
         )
-    if profile.provider.value == "local" and fn is None:
-        raise AdapterError(
-            "Local provider requires a callable `fn` argument",
-            code="missing_callable",
-        )
     if profile.provider.value == "local":
+        if fn is None:
+            # Canned echo adapter so the server works without an external model.
+            def _echo(prompt: str) -> str:
+                return f"[local echo] {prompt}"
+            fn = _echo
         return cls(profile, fn)  # type: ignore[arg-type]
     return cls(profile)
 
