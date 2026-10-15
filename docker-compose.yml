@@ -1,0 +1,51 @@
+# Mnemosyne Protocol — docker-compose
+#
+# Spin up the memory engine microservice with a single command:
+#
+#   docker compose up -d
+#
+# Then call the API:
+#
+#   curl -X POST http://localhost:8000/v1/memory/ingest \
+#     -H 'Content-Type: application/json' \
+#     -d '{"content":"The user likes dark mode.","source":"demo","importance_score":0.9}'
+#
+#   curl -X POST http://localhost:8000/v1/chat/completions \
+#     -H 'Content-Type: application/json' \
+#     -d '{"message":"What does the user like?"}'
+
+services:
+  mnemosyne:
+    build: .
+    container_name: mnemosyne-server
+    ports:
+      - "8000:8000"
+    environment:
+      - MNEMOSYNE_STORAGE_PATH=/data/mnemosyne
+      - MNEMOSYNE_DB_ECHO=false
+      # Set your model API keys here as needed:
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - mnemosyne_data:/data/mnemosyne
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Ollama for local model hosting (uncomment to use).
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: mnemosyne-ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   restart: unless-stopped
+
+volumes:
+  mnemosyne_data:
+  # ollama_data:

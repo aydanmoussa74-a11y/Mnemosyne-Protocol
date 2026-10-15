@@ -4,3 +4,6 @@ __pycache__/
 .mnemosyne_data/
 .smoke_data/
 .env
+
+# Runtime data (created by engine)
+mnemosyne_data/
