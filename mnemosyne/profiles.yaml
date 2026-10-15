@@ -1,0 +1,79 @@
+# Mnemosyne Protocol — plug-and-play configuration profiles.
+# Copy this file and edit to match your deployment environment.
+
+embedding:
+  provider: local           # local | openai | ollama | vllm
+  model: sentence-transformers/all-MiniLM-L6-v2
+  base_url: null            # e.g. http://localhost:11434 for ollama
+  api_key: null
+  dimensions: 384
+  batch_size: 32
+  normalize: true
+
+retrieval:
+  mode: hybrid              # vector | graph | hybrid
+  top_k: 10
+  vector_weight: 0.6
+  graph_weight: 0.4
+  min_importance: 0.1
+  rrf_k: 60
+  graph_hop_depth: 2
+  tag_filter: null
+
+consolidation:
+  enabled: true
+  interval_seconds: 300
+  max_blocks_per_run: 200
+  importance_threshold: 0.3
+  age_threshold_seconds: 86400   # 1 day
+  compression_ratio: 0.4
+  prune_low_importance: true
+  extract_entities: true
+  worker_threads: 2
+
+token_budget:
+  total_context_window: 8192
+  system_reserved: 512
+  user_input_reserve: 1024
+  retrieval_ratio: 0.35
+  overhead_ratio: 0.05
+  max_blocks: 20
+
+profiles:
+  default:
+    provider: openai
+    base_url: https://api.openai.com/v1
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4o
+    temperature: 0.7
+    max_tokens: 2048
+    timeout_seconds: 60
+
+  claude:
+    provider: anthropic
+    base_url: https://api.anthropic.com
+    api_key: ${ANTHROPIC_API_KEY}
+    model: claude-3-opus-20240229
+    temperature: 0.7
+    max_tokens: 2048
+    timeout_seconds: 60
+
+  ollama_local:
+    provider: ollama
+    base_url: http://localhost:11434
+    model: llama3
+    temperature: 0.7
+    max_tokens: 2048
+    timeout_seconds: 60
+
+  vllm_local:
+    provider: vllm
+    base_url: http://localhost:8000/v1
+    model: meta-llama/Meta-Llama-3-8B-Instruct
+    temperature: 0.7
+    max_tokens: 2048
+    timeout_seconds: 60
+
+default_profile: default
+storage_path: ./mnemosyne_data
+db_echo: false

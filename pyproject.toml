@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mnemosyne-protocol"
+version = "1.0.0"
+description = "Hyper-scaling, model-agnostic agent memory engine with hybrid vector & knowledge graph core, autonomous consolidation, and dynamic context injection."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    {name = "Mnemosyne Protocol", email = "engineering@mnemosyne.example"},
+]
+license = {text = "MIT"}
+dependencies = [
+    "pydantic>=2.0",
+    "SQLAlchemy>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black",
+    "ruff",
+    "mypy",
+]
+openai = ["openai>=1.0"]
+anthropic = ["anthropic>=0.20"]
+httpx = ["httpx>=0.24"]
+numpy = ["numpy>=1.24"]
+tiktoken = ["tiktoken>=0.5"]
+ollama = ["httpx>=0.24"]
+vllm = ["openai>=1.0"]
+all = [
+    "openai>=1.0",
+    "anthropic>=0.20",
+    "httpx>=0.24",
+    "numpy>=1.24",
+    "tiktoken>=0.5",
+]
+
+[project.scripts]
+mnemosyne = "mnemosyne.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mnemosyne*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "N", "S"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
