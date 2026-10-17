@@ -7,3 +7,9 @@ __pycache__/
 
 # Runtime data (created by engine)
 mnemosyne_data/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+.eggs/
