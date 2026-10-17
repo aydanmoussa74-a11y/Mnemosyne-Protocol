@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mnemosyne Protocol</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --fg: #e8eaed;
+      --muted: #9aa0a6;
+      --accent: #6ea8fe;
+      --card: #1a1d24;
+      --border: #2a2e38;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    header {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .logo { font-weight: 700; font-size: 1.25rem; color: var(--accent); }
+    nav a {
+      color: var(--muted);
+      text-decoration: none;
+      margin-left: 24px;
+      font-size: 0.95rem;
+    }
+    nav a:hover { color: var(--fg); }
+    .hero {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 80px 24px 40px;
+      text-align: center;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      line-height: 1.1;
+      margin-bottom: 16px;
+    }
+    .hero p {
+      color: var(--muted);
+      font-size: 1.15rem;
+      max-width: 640px;
+      margin: 0 auto 32px;
+    }
+    .cta {
+      display: inline-block;
+      background: var(--accent);
+      color: #0f1115;
+      padding: 12px 28px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      margin: 0 8px;
+    }
+    .cta.secondary {
+      background: transparent;
+      color: var(--fg);
+      border: 1px solid var(--border);
+    }
+    .features {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 60px 24px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px;
+    }
+    .card h3 { margin-bottom: 8px; color: var(--accent); }
+    .card p { color: var(--muted); font-size: 0.95rem; }
+    footer {
+      text-align: center;
+      color: var(--muted);
+      padding: 40px 24px;
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">Mnemosyne</div>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#about">About</a>
+      <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <h1>Memory that learns,<br />context that lasts.</h1>
+    <p>
+      Mnemosyne Protocol is a memory layer for AI applications — ingest, retrieve,
+      and consolidate knowledge with hybrid vector + graph retrieval.
+    </p>
+    <a class="cta" href="#features">Get started</a>
+    <a class="cta secondary" href="#about">Learn more</a>
+  </section>
+
+  <section class="features" id="features">
+    <div class="card">
+      <h3>Hybrid Retrieval</h3>
+      <p>Combine vector similarity with graph traversal for richer, more relevant context.</p>
+    </div>
+    <div class="card">
+      <h3>Consolidation</h3>
+      <p>Automatically synthesize and prune memories to keep your knowledge base sharp.</p>
+    </div>
+    <div class="card">
+      <h3>Token Budgets</h3>
+      <p>Fit the right context into every prompt with configurable token budgets.</p>
+    </div>
+    <div class="card">
+      <h3>Multi-tenant</h3>
+      <p>Isolated memory stores per tenant, with API-key auth and payload limits built in.</p>
+    </div>
+  </section>
+
+  <section class="features" id="about">
+    <div class="card">
+      <h3>Open &amp; Extensible</h3>
+      <p>Adapters for OpenAI, Anthropic, Ollama, vLLM, and local models. FastAPI server included.</p>
+    </div>
+    <div class="card">
+      <h3>Developer Friendly</h3>
+      <p>Python SDK, CLI, and a full test suite. Drop it into your existing stack in minutes.</p>
+    </div>
+  </section>
+
+  <footer>
+    &copy; 2025 Mnemosyne Protocol. Built with care.
+  </footer>
+</body>
+</html>
