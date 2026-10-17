@@ -1,19 +1,46 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mnemosyne-protocol"
 version = "1.0.0"
-description = "Hyper-scaling, model-agnostic agent memory engine with hybrid vector & knowledge graph core, autonomous consolidation, and dynamic context injection."
+description = "The ultimate model-agnostic hybrid memory sidecar and cognitive architecture for AI agents."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10,<3.15"
 authors = [
-    {name = "Mnemosyne Protocol", email = "engineering@mnemosyne.example"},
+    {name = "The Mnemosyne Protocol Contributors", email = "engineering@mnemosyne.example"},
+]
+maintainers = [
+    {name = "Mnemosyne Protocol Maintainers", email = "maintainers@mnemosyne.example"},
 ]
 license = {text = "MIT"}
+keywords = [
+    "agent-memory",
+    "vector-database",
+    "knowledge-graph",
+    "llm",
+    "context-injection",
+    "memory-consolidation",
+    "rag",
+    "cognitive-architecture",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Database",
+]
+
 dependencies = [
-    "pydantic>=2.0",
+    "pydantic>=1.10,<2.0",
     "SQLAlchemy>=2.0",
 ]
 
@@ -24,11 +51,19 @@ dev = [
     "ruff",
     "mypy",
 ]
+server = [
+    "fastapi>=0.104,<0.105",
+    "uvicorn>=0.24,<0.25",
+    "starlette>=0.27,<0.28",
+    "httpx>=0.24",
+    "python-multipart>=0.0.6",
+    "email-validator>=2.0",
+    "rich>=13.0",
+]
 openai = ["openai>=1.0"]
 anthropic = ["anthropic>=0.20"]
-httpx = ["httpx>=0.24"]
-numpy = ["numpy>=1.24"]
 tiktoken = ["tiktoken>=0.5"]
+numpy = ["numpy>=1.24"]
 ollama = ["httpx>=0.24"]
 vllm = ["openai>=1.0"]
 all = [
@@ -37,22 +72,30 @@ all = [
     "httpx>=0.24",
     "numpy>=1.24",
     "tiktoken>=0.5",
+    "fastapi>=0.104,<0.105",
+    "uvicorn>=0.24,<0.25",
+    "starlette>=0.27,<0.28",
+    "python-multipart>=0.0.6",
+    "email-validator>=2.0",
+    "rich>=13.0",
 ]
 
 [project.scripts]
 mnemosyne = "mnemosyne.cli:main"
+mnemosyne-chat = "mnemosyne.chat_client:main"
+mnemosyne-server = "mnemosyne.server:create_app"
 
 [tool.setuptools.packages.find]
 include = ["mnemosyne*"]
 
 [tool.black]
 line-length = 100
-target-version = ["py39"]
+target-version = ["py310", "py311", "py312", "py313", "py314"]
 
 [tool.ruff]
 line-length = 100
 select = ["E", "F", "I", "N", "S"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 strict = true
