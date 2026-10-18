@@ -211,7 +211,7 @@ class MnemosyneChatClient:
             f"[dim]Profile:[/dim] {profile.name} ({profile.provider.value}) "
             f"| model={profile.model} | mode={self.mode.value} | top_k={self.top_k}"
         )
-        console.print("[dim]Commands:[/dim] /profile <name> | /stats | /history [n] | /clear | /quit[/dim]")
+        console.print("[dim]Commands: /profile <name> | /stats | /history [n] | /clear | /quit[/dim]")
 
     def _show_context_summary(self, injection: InjectionResult) -> None:
         budget = injection.budget
